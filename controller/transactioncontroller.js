@@ -1,50 +1,66 @@
 const Transaction = require("../models/transacttionmodel");
 
-// ➕ Add Transaction
-exports.addTransaction = async (req, res) => {
-    console.log("comes here", req.body);
-    try {
-        const newTransaction = new Transaction(req.body);
-        await newTransaction.save();
-        res.json(newTransaction);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+const fetchTransactionsByUser = async (userId) => {
+    const query = userId ? { userId: String(userId) } : {};
+    return Transaction.find(query).sort({ createdAt: -1 }).lean();
 };
 
-// 📥 Get All Transactions
-exports.getTransactions = async (req, res) => {
-    try {
-        const data = await Transaction.find().sort({ createdAt: -1 });
-        res.json(data);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-};
+exports.transaction = async (req, res) => {
+    const { apitype, id, data, userId } = req.body;
 
-// ❌ Delete Transaction
-exports.deleteTransaction = async (req, res) => {
     try {
-        await Transaction.findByIdAndDelete(req.params.id);
-        const data = await Transaction.find().sort({ createdAt: -1 });
-        res.json({ message: "Deleted successfully", row: data });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-};
+        switch (apitype) {
+            case "addTransaction": {
+                if (!data?.userId || !data?.amount || !data?.category || !data?.date || !data?.type) {
+                    return res.status(400).json({ message: "Missing required transaction fields" });
+                }
 
-// ✏️ Update Transaction
-exports.updateTransaction = async (req, res) => {
-    try {
-        const updated = await Transaction.findByIdAndUpdate(
-            req.params.id,
-            req.body,
-            { new: true }
-        );
-        console.log("updateddata", updated)
-        const data = await Transaction.find().sort({ createdAt: -1 });
-        res.json(data);
+                const newTransaction = await Transaction.create(data);
+                return res.status(201).json(newTransaction);
+            }
+
+            case "getTransaction": {
+                const transactions = await fetchTransactionsByUser(userId);
+                return res.json(transactions);
+            }
+
+            case "deleteTransaction": {
+                if (!id) {
+                    return res.status(400).json({ message: "Transaction id is required" });
+                }
+
+                const deletedTransaction = await Transaction.findByIdAndDelete(id);
+
+                if (!deletedTransaction) {
+                    return res.status(404).json({ message: "Transaction not found" });
+                }
+
+                const transactions = await fetchTransactionsByUser(userId || deletedTransaction.userId);
+                return res.json({ message: "Deleted successfully", rows: transactions });
+            }
+            case "updateTransaction": {
+                if (!id || !data) {
+                    return res.status(400).json({ message: "Transaction id and update data are required" });
+                }
+
+                const updatedTransaction = await Transaction.findByIdAndUpdate(
+                    id,
+                    data,
+                    { new: true, runValidators: true }
+                );
+
+                if (!updatedTransaction) {
+                    return res.status(404).json({ message: "Transaction not found" });
+                }
+
+                const transactions = await fetchTransactionsByUser(userId || updatedTransaction.userId);
+                return res.json({ message: "Updated successfully", rows: transactions });
+            }
+
+            default:
+                return res.status(400).json({ message: "Invalid apitype" });
+        }
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        return res.status(500).json({ message: error.message });
     }
 };
